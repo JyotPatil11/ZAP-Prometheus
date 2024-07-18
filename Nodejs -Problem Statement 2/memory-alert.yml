@@ -1,0 +1,11 @@
+groups:
+  - name: Memory Usage Alerts
+    rules:
+      - alert: HighMemoryUsage
+        expr: nodejs_memory_usage_bytes > 500000000  # Adjust the threshold as needed
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage has been above 500MB for more than 1 minute."

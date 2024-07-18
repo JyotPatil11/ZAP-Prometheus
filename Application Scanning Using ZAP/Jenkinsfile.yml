@@ -1,0 +1,98 @@
+pipeline {
+    agent {
+        label{
+               label 'slave-1'
+    }
+}
+environment {
+       	 ZAP_CONTAINER_NAME = "zap"
+      	  ZAP_PORT = "8080"
+        	TARGET_URL = "http://13.233.172.229:9090/EcommerceApp/"
+       	ZAP_REPORT = "zap_report.html"
+       	APACHE_DOC_ROOT = '/var/www/html/'
+       	 //ZAP_API_KEY = "random-generated-api-key" // Replace with a secure key if needed
+    }
+
+    tools {
+        	maven 'maven3'
+    }
+
+    stages {
+        stage('Clone from GitHub') {
+            steps {
+            git credentialsId: 'git-token', url: 'https://github.com/JyotPatil11/EcommerceApp.git'
+        }
+        }
+
+        stage('Build') {
+            steps {
+                //sh 'cd /mnt/jenkins-slave/workspace/sample/EcommerceApp/'
+                sh 'mvn -f /mnt/jenkins-slave/workspace/Final/EcommerceApp/pom.xml package'
+            }
+        }
+
+         stage('Deploy') {
+                steps {
+
+                sh 'cp -r /mnt/jenkins-slave/workspace/Final/EcommerceApp/target/*.war  /home/ec2-user/apache-tomcat-9.0.91/webapps/'
+                sh 'chmod -R 777 /home/ec2-user/apache-tomcat-9.0.91/webapps/*.war'
+ }
+         }
+
+         stage('Start ZAP in Docker') {
+            steps {
+                script {
+                    sh """
+                    docker run -u root -d --name $ZAP_CONTAINER_NAME --memory=4g -p $ZAP_PORT:8080 -i zaproxy/zap-stable zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.disablekey=true
+                    docker exec  $ZAP_CONTAINER_NAME sudo apt-get update && sudo apt-get install -y python3 python3-pip
+                    docker exec  $ZAP_CONTAINER_NAME python3 -m pip install --upgrade pip
+                    docker exec  $ZAP_CONTAINER_NAME pip3 install --upgrade zapcli
+                    """
+                    sleep 30 // Wait for ZAP to fully start
+                }
+            }
+        }
+        stage('Run ZAP Scan') {
+            steps {
+                script {
+                    def targetUrl = "$TARGET_URL"
+                    def zapReport = "$ZAP_REPORT"
+                    def zapContainerName = "$ZAP_CONTAINER_NAME"
+
+                    sh """
+     	docker exec -d $zapContainerName zap-cli quick-scan --self-contained --start-options '-config api.disablekey=true' --spider --ajax-spider --scanners all $targetUrl
+   	 docker exec $zapContainerName zap-cli report -o zap_report.html -f html
+    	docker exec  $zapContainerName zap-cli shutdown
+                    """
+                }
+            }
+        }
+# Publish Report on Browser
+       stage('Publish Report') {
+    steps {
+        sh "mkdir -p ${APACHE_DOC_ROOT}"
+        sh "docker cp zap:/zap/zap_report.html ${APACHE_DOC_ROOT}/zap_report.html"
+    }
+}
+
+          OR
+#Publish Report  on Jenkins Dashboard
+post {
+        always {
+            // Archive the generated HTML report as an artifact
+            archiveArtifacts artifacts: 'zap_report.html', allowEmptyArchive: true
+
+            // Publish HTML reports
+            publishHTML([
+                allowMissing: false,
+                alwaysLinkToLastBuild: true,
+                keepAll: true,
+                reportDir: '',
+                reportFiles: 'zap_report.html',
+                reportName: 'OWASP ZAP Report'
+            ])
+        }
+    }
+    }
+
+}
