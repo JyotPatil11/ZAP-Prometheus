@@ -1,8 +1,0 @@
-[
-    {
-      "targets": ["localhost:3000"],
-      "labels": {
-        "job": "nodejs"
-      }
-    }
-  ]
